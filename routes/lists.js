@@ -9,7 +9,7 @@ router.get('/lists', (req, res) => {
     const { userId } = req.query;
 
     // query
-    let query = 'SELECT listId, name, description FROM List WHERE = ?';
+    let query = 'SELECT listId, name, description FROM List WHERE userId = ?';
     let params = [];
 
     params.push(formatId);
