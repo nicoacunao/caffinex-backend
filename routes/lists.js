@@ -12,7 +12,7 @@ router.get('/lists', (req, res) => {
     let query = 'SELECT listId, name, description FROM List WHERE userId = ?';
     let params = [];
 
-    params.push(formatId);
+    params.push(userId);
 
     db.query(query, params, (err, results) => {
         if (err) {
