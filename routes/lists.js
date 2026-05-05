@@ -8,8 +8,15 @@ router.get('/lists', (req, res) => {
     // Id del usuario
     const { userId } = req.query;
 
+    if (!userId) {
+        return res.status(400).json({ error: 'Falta el id del usuario' });
+    }
+
     // query
-    let query = 'SELECT listId, name, description FROM List WHERE userId = ?';
+    let query = `SELECT l.listId, li.name, li.description
+                FROM List l
+                INNER JOIN ListInfo li ON l.listInfoId = li.listInfoId
+                WHERE l.userId = ?`;
     let params = [];
 
     params.push(userId);
@@ -25,31 +32,5 @@ router.get('/lists', (req, res) => {
 
 });
 
-// Crear una lista del usuario
-router.post('/lists', (req, res) => {
-    const { userId, name, description } = req.body;
-
-    try {
-
-        const [existingLists] = db.query(
-            'SELECT listId, name FROM List WHERE name = ?',
-            [name]
-        );
-
-        if (existingLists.length > 0) {
-            return res.status(409).json({ message: 'La lista ya existe' });
-        }
-
-        db.query(
-            'INSERT INTO List (name, description, userId) VALUES (?, ?, ?)',
-            [name, description, userId]
-        );
-
-        return res.status(201).json({ message: 'Lista creada' });
-
-    } catch(error) {
-        return res.status(500).json({ message: 'Error del servidor' });
-    }
-});
 
 module.exports = router;
