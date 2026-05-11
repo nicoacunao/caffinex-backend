@@ -18,6 +18,8 @@ const listsRoutes = require('./routes/lists');
 
 const myCoffeesRoutes = require('./router/myCoffees');
 
+const friendshipsRoutes = require('./routes/friendships');
+
 app.use(cors());
 app.use(express.json());
 
@@ -28,6 +30,7 @@ app.use('/api', coffeesRoutes);
 app.use('/api', authRoutes);
 app.use('/api', listsRoutes);
 app.use('/api', myCoffeesRoutes);
+app.use('/api', friendshipsRoutes);
 
 const PORT = process.env.PORT || 3007;
 
