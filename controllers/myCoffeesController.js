@@ -1,5 +1,6 @@
 const db = require('../db');
 
+// Obtener cafés de una lista o el historial de un café específico
 const getMyCoffees = async (req, res) => {
     const { listId, myCoffeeId } = req.query;
 
@@ -66,8 +67,8 @@ const getMyCoffees = async (req, res) => {
     }
 };
 
-// Agregar Coffee a Lista
-const addMyCoffee = async (req, res) => {
+// Agregar Coffee a Primera Lista
+const addMyCoffeeToFirstList = async (req, res) => {
 
     const { userId, coffeeId, listId, dateAdded, historialText } = req.body;
 
@@ -95,7 +96,6 @@ const addMyCoffee = async (req, res) => {
         }
 
 
-
         // En caso contrario, se revisa que si es que la lista a la que se quiere agregar es
         // Want To Try
         const [myList] = await db.query(
@@ -106,78 +106,27 @@ const addMyCoffee = async (req, res) => {
             [listId]
         );
 
-
-        // Si la lista a la que se quiere agregar no es Want To Try, se verifica que en la lista a la que se quiere agregar
-        // tenga un orden mayor a la actual.
+        // Si no es la lista Want To Try, se retorna un error porque solo se pueden agregar cafés directamente a esa lista
         if (myList.length === 0) {
-
-            const [historialLists] = await db.query(
-                `
-                SELECT mch.listId, mch.myCoffeeId
-                FROM List l
-                INNER JOIN ListInfo li ON l.listInfoId = li.listInfoId
-                INNER JOIN MyCoffeeHistorial mch ON l.listId = mch.listId
-                INNER JOIN MyCoffee mc ON mch.myCoffeeId = mc.myCoffeeId
-                WHERE l.userId = ?
-                AND li.listOrder < (
-                    SELECT li2.listOrder
-                    FROM List l2
-                    INNER JOIN ListInfo li2 ON l2.listInfoId = li2.listInfoId
-                    WHERE l2.listId = ?
-                    LIMIT 1
-                )
-                AND mc.coffeeId = ?
-                AND mch.dateChanged IS NULL
-                ORDER BY mch.dateAdded DESC
-                LIMIT 1
-                `,
-                [userId, listId, coffeeId]
-            );
-
-            if (historialLists.length === 0) {
-                return res.status(409).json({
-                    message: "El café no existe en una lista anterior válida"
-                });
-            }
-
-            const oldListId = historialLists[0].listId;
-            const myCoffeeId = historialLists[0].myCoffeeId;
-
-            // Se crea el historial
-            await db.query(
-                `INSERT INTO MyCoffeeHistorial (myCoffeeId, listId, dateAdded, historialText)
-                    VALUES (?, ?, ?, ?)`,
-                [myCoffeeId, listId, dateAdded, historialText]
-            );
-
-            // y en la anterior lista se añade la fecha de cambio
-            await db.query(
-                `UPDATE MyCoffeeHistorial
-                    SET dateChanged = ?
-                    WHERE myCoffeeId = ? AND listId = ? AND dateChanged IS NULL`,
-                [dateAdded, myCoffeeId, oldListId]
-            );
-
-
-
-        } else {
-            // En caso contrario, se inserta el registro en My Coffee y se crea el historial (se agrega en la lista Want To Try).
-
-            const [result] = await db.query(
-                `INSERT INTO MyCoffee (coffeeId)
-                    VALUES (?)`,
-                [coffeeId]
-            );
-
-            const myCoffeeId = result.insertId;
-
-            await db.query(
-                `INSERT INTO MyCoffeeHistorial (myCoffeeId, listId, dateAdded, historialText)
-                    VALUES (?, ?, ?, ?)`,
-                [myCoffeeId, listId, dateAdded, historialText]
-            );
-
+            return res.status(400).json({ message: 'Solo se pueden agregar cafés directamente a la lista Want To Try' });
         }
+        // En caso contrario, se inserta el registro en My Coffee y se crea el historial (se agrega en la lista Want To Try).
+
+        const [result] = await db.query(
+            `INSERT INTO MyCoffee (coffeeId)
+                    VALUES (?)`,
+            [coffeeId]
+        );
+
+        const myCoffeeId = result.insertId;
+
+        await db.query(
+            `INSERT INTO MyCoffeeHistorial (myCoffeeId, listId, dateAdded, historialText)
+                    VALUES (?, ?, ?, ?)`,
+            [myCoffeeId, listId, dateAdded, historialText]
+        );
+
+
 
 
         return res.status(201).json({ message: 'Café agregado a la lista' });
@@ -192,4 +141,124 @@ const addMyCoffee = async (req, res) => {
 
 };
 
-module.exports = { getMyCoffees, addMyCoffee }
+const changeMyCoffeeList = async (req, res) => {
+
+    const { myCoffeeId, newListId, dateAdded, historialText } = req.body;
+
+    try {
+
+        if (!myCoffeeId || !newListId || !dateAdded) {
+            return res.status(400).json({
+                message: 'Faltan datos obligatorios'
+            });
+        }
+
+        // Revisar si existe en la lista
+        const [myCoffees] = await db.query(
+            `SELECT mch.myCoffeeId AS myCoffeeId
+                FROM MyCoffeeHistorial mch
+                INNER JOIN MyCoffee mc ON mch.myCoffeeId = mc.myCoffeeId
+                WHERE mch.listId = ? AND mc.myCoffeeId = ? AND mch.dateChanged IS NULL` ,
+            [newListId, myCoffeeId]
+        );
+
+        // Si existe en la lista
+        if (myCoffees.length === 1) {
+            return res.status(409).json({ message: 'El café ya existe en la lista' });
+        }
+
+        // Se obtiene el historial del café para obtener la lista actual
+        const [historialLists] = await db.query(
+            `
+            SELECT mch.listId
+            FROM MyCoffeeHistorial mch
+            WHERE mch.myCoffeeId = ? AND mch.dateChanged IS NULL
+            ORDER BY mch.dateAdded DESC
+            LIMIT 1
+            `,
+            [myCoffeeId]
+        );
+
+        if (historialLists.length === 0) {
+            return res.status(404).json({
+                message: "No se encontró el café en ninguna lista"
+            });
+        }
+
+        const oldListId = historialLists[0].listId;
+
+        // Se crea el nuevo historial con la nueva lista
+        await db.query(
+            `INSERT INTO MyCoffeeHistorial (myCoffeeId, listId, dateAdded, historialText)
+                VALUES (?, ?, ?, ?)`,
+            [myCoffeeId, newListId, dateAdded, historialText]
+        );
+
+        // y en la anterior lista se añade la fecha de cambio
+        await db.query(
+            `UPDATE MyCoffeeHistorial
+                SET dateChanged = ?
+                WHERE myCoffeeId = ? AND listId = ? AND dateChanged IS NULL`,
+            [dateAdded, myCoffeeId, oldListId]
+        );
+
+        return res.status(200).json({ message: 'Café movido a la nueva lista' });
+
+    } catch (error) {
+        return res.status(500).json({
+            message: 'Error del servidor',
+            details: error.message
+        });
+    }
+
+};
+
+
+const addReviewMyCoffee = async (req, res) => {
+
+    const { myCoffeeId, rating, reviewText, imageUrl } = req.body;
+
+    if (!myCoffeeId || !rating) {
+        return res.status(400).json({
+            message: 'Faltan datos obligatorios'
+        });
+    }
+
+    try {
+
+        // Se revisa que el café esté en la lista Tried para poder reseñarlo. Para esto, se revisa el historial del café y se verifica que en alguna de las entradas del historial la lista sea la de Tried (listOrder = 3). Si no está en esa lista, no se puede reseñar.
+        const [myCoffee] = await db.query(
+            `SELECT myCoffeeId
+                FROM MyCoffee
+                INNER JOIN MyCoffeeHistorial mch ON MyCoffee.myCoffeeId = mch.myCoffeeId
+                INNER JOIN List l ON mch.listId = l.listId
+                INNER JOIN ListInfo li ON l.listInfoId = li.listInfoId
+                WHERE MyCoffee.myCoffeeId = ? AND li.listOrder = 3`,
+            [myCoffeeId]
+        );
+
+        if (myCoffee.length === 0) {
+            return res.status(400).json({ message: 'Solo se pueden reseñar cafés que estén en la lista Tried' });
+        }
+
+        // Si el café está en la lista Tried, se actualiza el registro de MyCoffee con la reseña y la calificación
+        await db.query(
+            `UPDATE MyCoffee
+                SET rating = ?, reviewText = ?, imageUrl = ?
+                WHERE myCoffeeId = ?`,
+            [rating, reviewText, imageUrl, myCoffeeId]
+        );
+
+        return res.status(200).json({ message: 'Café reseñado correctamente' });
+
+
+    } catch (error) {
+        return res.status(500).json({
+            message: 'Error del servidor',
+            details: error.message
+        });
+    }
+
+};
+
+module.exports = { getMyCoffees, addMyCoffeeToFirstList, changeMyCoffeeList, addReviewMyCoffee };
